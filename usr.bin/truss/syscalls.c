@@ -829,7 +829,6 @@ lookup(struct xlat *xlat, int val, int base)
 			break;
 		default:
 			errx(1,"Unknown lookup base");
-			break;
 	}
 	return (tmp);
 }
@@ -1063,12 +1062,12 @@ get_syscall(struct threadinfo *t, u_int number, u_int nargs)
  * Copy a fixed amount of bytes from the process.
  */
 static int
-get_struct(pid_t pid, uintptr_t offset, void *buf, int len)
+get_struct(pid_t pid, kvaddr_t offset, void *buf, size_t len)
 {
 	struct ptrace_io_desc iorequest;
 
 	iorequest.piod_op = PIOD_READ_D;
-	iorequest.piod_offs = (void *)offset;
+	iorequest.piod_offs = (void *)(uintptr_t)offset;
 	iorequest.piod_addr = buf;
 	iorequest.piod_len = len;
 	if (ptrace(PT_IO, pid, (caddr_t)&iorequest, 0) < 0)
@@ -1084,7 +1083,7 @@ get_struct(pid_t pid, uintptr_t offset, void *buf, int len)
  * only get that much.
  */
 static char *
-get_string(pid_t pid, uintptr_t addr, int max)
+get_string(pid_t pid, kvaddr_t addr, int max)
 {
 	struct ptrace_io_desc iorequest;
 	char *buf, *nbuf;
@@ -1095,7 +1094,7 @@ get_string(pid_t pid, uintptr_t addr, int max)
 		size = max + 1;
 	else {
 		/* Read up to the end of the current page. */
-		size = PAGE_SIZE - ((vaddr_t)addr % PAGE_SIZE);
+		size = PAGE_SIZE - (addr % PAGE_SIZE);
 		if (size > MAXSIZE)
 			size = MAXSIZE;
 	}
@@ -1105,7 +1104,7 @@ get_string(pid_t pid, uintptr_t addr, int max)
 		return (NULL);
 	for (;;) {
 		iorequest.piod_op = PIOD_READ_D;
-		iorequest.piod_offs = (void *)(addr + offset);
+		iorequest.piod_offs = (void *)((uintptr_t)addr + offset);
 		iorequest.piod_addr = buf + offset;
 		iorequest.piod_len = size;
 		if (ptrace(PT_IO, pid, (caddr_t)&iorequest, 0) < 0) {
@@ -1723,7 +1722,7 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 	case ExecArgs:
 	case ExecEnv:
 	case StringArray: {
-		uintptr_t addr;
+		kvaddr_t addr;
 		union {
 			int32_t strarray32[PAGE_SIZE / sizeof(int32_t)];
 			int64_t strarray64[PAGE_SIZE / sizeof(int64_t)];
@@ -1753,7 +1752,7 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 		 * a partial page.
 		 */
 		addr = args[sc->offset];
-		if (addr % pointer_size != 0) {
+		if (!__is_aligned(addr, pointer_size)) {
 			print_pointer(fp, args[sc->offset]);
 			break;
 		}
@@ -1770,20 +1769,19 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 		first = 1;
 		i = 0;
 		for (;;) {
-			uintptr_t straddr;
+			kvaddr_t straddr;
 			if (pointer_size == 4) {
-				if (u.strarray32[i] == 0)
-					break;
 				/* sign-extend 32-bit pointers */
-				straddr = (intptr_t)u.strarray32[i];
+				straddr = (kvaddr_t)(int64_t)u.strarray32[i];
 			} else if (pointer_size == 8) {
-				if (u.strarray64[i] == 0)
-					break;
-				straddr = (intptr_t)u.strarray64[i];
+				straddr = (kvaddr_t)u.strarray64[i];
 			} else {
 				errx(1, "Unsupported pointer size: %zu",
 				    pointer_size);
 			}
+			/* Stop once we read the first NULL pointer. */
+			if (straddr == 0)
+				break;
 			string = get_string(pid, straddr, 0);
 			fprintf(fp, "%s \"%s\"", first ? "" : ",", string);
 			free(string);
