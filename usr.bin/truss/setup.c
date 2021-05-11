@@ -117,6 +117,7 @@ static struct procabi freebsd64 = {
 	.type = "FreeBSD64",
 	.abi = SYSDECODE_ABI_FREEBSD64,
 	.pointer_size = sizeof(uint64_t),
+	.compat_prefix = "freebsd64_",
 	.extra_syscalls = STAILQ_HEAD_INITIALIZER(freebsd64.extra_syscalls),
 	.syscalls = { NULL }
 };

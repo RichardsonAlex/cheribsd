@@ -1726,6 +1726,7 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 		union {
 			int32_t strarray32[PAGE_SIZE / sizeof(int32_t)];
 			int64_t strarray64[PAGE_SIZE / sizeof(int64_t)];
+			intcap_t strarray_cap[PAGE_SIZE / sizeof(intcap_t)];
 			char buf[PAGE_SIZE];
 		} u;
 		char *string;
@@ -1757,8 +1758,7 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 			break;
 		}
 
-		len = (char *)__builtin_align_up(addr, PAGE_SIZE) -
-		    (char *)addr;
+		len = PAGE_SIZE - (addr & PAGE_MASK);
 		if (get_struct(pid, addr, u.buf, len) == -1) {
 			print_pointer(fp, args[sc->offset]);
 			break;
@@ -1770,7 +1770,9 @@ print_arg(struct syscall_arg *sc, syscallarg_t *args, syscallarg_t *retval,
 		i = 0;
 		for (;;) {
 			kvaddr_t straddr;
-			if (pointer_size == 4) {
+			if (pointer_size == sizeof(intcap_t)) {
+				straddr = (kvaddr_t)(int64_t)u.strarray_cap[i];
+			} else if (pointer_size == 4) {
 				/* sign-extend 32-bit pointers */
 				straddr = (kvaddr_t)(int64_t)u.strarray32[i];
 			} else if (pointer_size == 8) {
